@@ -1,0 +1,1052 @@
+
+===== PAGE 1 =====
+WHU-MARS: A Multispectral Aerial-Ground Benchmark Towards
+Any-Scenario Person Re-Identification
+Yuxuan Zhao, Zhongao Zhou, Bin Yang *, He Li, Jian Liang, Jun Chen, Bo Du, Mang Ye *
+National Engineering Research Center for Multimedia Software,
+School of Computer Science, Wuhan University, Wuhan, China
+{zhaoyuxuan, yangbin cv, yemang}@whu.edu.cn
+https://github.com/msm8976/WHU-MARS
+Abstract
+Recent person re-identification (ReID) leverages hetero-
+geneous sensing with multiple modalities and viewpoints
+to improve robustness across diverse conditions. How-
+ever, most approaches target predefined scenario pairs (e.g.,
+visible-infrared or aerial-ground) and train separate task-
+specific models. In contrast, real-world systems often query
+against galleries that cover all scenarios, making such de-
+signs inefficient and complex to deploy. To bridge this
+gap, we introduceAny-Scenario ReID (AS-ReID): given
+a query from any (modality, viewpoint) scenario, a sin-
+gle model retrieves the same identity from a heterogeneous
+gallery spanning all scenarios. Progress toward AS-ReID
+is limited by two factors: (i) the lack of a real-world-
+aligned benchmark with broad scenario coverage, and (ii)
+the challenge of learning representations with strong intra-
+identity cohesion and inter-identity discrimination under di-
+verse scenarios. To this end, we constructWHU-MARS, a
+multispectral aerial-ground benchmark with 2,337 identi-
+ties and 434,620 images captured by RGB, near-infrared,
+and thermal infrared cameras on both ground and UAV
+platforms. WHU-MARS spans day-night, multiple seasons,
+and diverse weather, enabling AS-ReID as well as conven-
+tional ReID tasks. We further propose theUnified Align-
+ment and Discrimination (UAD)framework. Progressive
+Center Alignment (ProCA) aggregates multi-view features
+into modality centers and then aligns them toward identity
+centers to reduce scenario bias. Global Prototype Discrimi-
+nation (GPD) contrasts samples against global identity pro-
+totypes to enforce large-margin discrimination. Extensive
+experiments highlight the challenges of WHU-MARS and
+demonstrate the effectiveness of UAD on AS-ReID.
+1. Introduction
+Person re-identification (ReID) aims to retrieve a target in-
+dividual across non-overlapping cameras and plays an im-
+*Corresponding Authors.
+Traditional ReID
+Visible-Infrared ReID
+(a) Different ReID tasks and their corresponding scenarios.
+RGB IR Any-Scenario ReID
+(AS-ReID)
+Modalities
+Day/Night
+Viewpoints
+Cameras
+SeasonsAerial-Ground ReID 
+Multi-modality ReID
+Tri-spectral
+paired sample
+RGB
+NIR
+TIR
+UAV
+(b) AS-ReID: Any-query to heterogeneous gallery retrieval.
+Any Query Heterogeneous Gallery
+Search
+Single Model
+…
+…
+…
+…
+Figure 1. Motivation and definition of Any-Scenario ReID
+(AS-ReID). (a) Existing ReID settings typically focus onpre-
+defined scenario pairs, while AS-ReID targets retrievalacross
+any (modality, viewpoint) scenario. (b) Given any query
+(RGB/NIR/TIR, aerial/ground), asingle modelretrieves the same
+identity from a heterogeneous gallery spanning all scenarios.
+portant role in smart cities and public safety [38]. RGB-
+only systems can be unreliable under challenging illumi-
+nation and environmental conditions [58], which motivates
+heterogeneous sensing across modalities and viewpoints:
+near-infrared (NIR) is effective in low light [40, 43], ther-
+mal infrared (TIR) remains informative under smoke or
+camouflage [59], and unmanned aerial vehicle (UA V) plat-
+forms provide wide-area coverage and flexible viewpoints
+beyond fixed cameras [53]. In modern deployments, ReID
+therefore must retrieve identities across heterogeneous sens-
+ing configurations and scenarios.
+As illustrated in Figure 1, existing research branches
+into several task settings: Traditional ReID (Tr-ReID) fo-
+cuses on ground RGB cameras; Aerial-Ground ReID (AG-
+This CVPR paper is the Open Access version, provided by the Computer Vision Foundation.
+Except for this watermark, it is identical to the accepted version;
+the final published version of the proceedings is available on IEEE Xplore.
+25461
+
+===== PAGE 2 =====
+ReID) [28] targets cross-view matching; Visible-Infrared
+ReID (VI-ReID) [39] enables all-day matching across
+visible and infrared; and Multi-Modality ReID (MM-
+ReID) [59] leverages complementary spectra for robustness.
+While effective within their own settings, these tasks are
+organized around predefined scenario pairs (e.g., visible-
+infrared or aerial-ground) with task-specific models and
+evaluation protocols. In real-world applications, however,
+a query may come from any modality and any viewpoint,
+and the gallery typically contains all available scenarios.
+Such pairwise designs fragment retrieval across scenarios
+and hinder learning or evaluating a single model that works
+universally. This raises a fundamental question: I) Can we
+move beyond predefined scenario pairs and establish a uni-
+fied retrieval paradigm that works across any scenario?
+As summarized in Table 1, most existing datasets are
+built around predefined scenario pairs. VI-ReID datasets
+contain only RGB-NIR or RGB-TIR, while AG-ReID
+broadens viewpoints but lacks modality variety. Datasets
+that include both cross-modal and cross-view imagery [10,
+29] typically provide limited per-identity scenario cover-
+age and are evaluated by splitting into scenario-pair subsets,
+which hinders learning unified, scenario-invariant represen-
+tations. Furthermore, daytime-centric collection undersam-
+ples nighttime conditions where infrared sensors are most
+valuable, limiting all-day robustness evaluation. Thus, II)
+How to build a benchmark that captures diverse scenarios
+and real-world complexity to support a unified ReID task?
+On the methodology side, many approaches address pre-
+defined scenario pairs with multi-branch architectures [41,
+57] or pairwise alignment losses [3, 44]. As modalities
+and viewpoints grow, such designs rely on scenario-specific
+modules or pairwise objectives, inflating parameters and
+scaling quadratically with scenarios, which is ill-suited for
+any-scenario settings. Moreover, heterogeneous sensing
+in AS-ReID introduces large appearance gaps across sce-
+narios, while mixing all scenarios in a single gallery dra-
+matically increases visually similar but semantically dif-
+ferent distractors. As a result, AS-ReID poses two in-
+tertwined representation challenges:(a) scenario-invariant
+intra-identity cohesion, where features of the same identity
+should cluster across scenarios in a unified space; and(b)
+large-margin inter-identity discrimination, where features
+should maintain clear global margins amid abundant hard
+negatives from heterogeneous galleries. Accordingly, III)
+How to design a single, scalable framework that learns ef-
+fectively from heterogeneous sources while simultaneously
+enforcing (a) and (b) for any-scenario ReID?
+For problem I), we introduce a new task namedAny-
+Scenario Person ReID (AS-ReID). Here, ascenariorefers
+to a combination of modality and viewpoint from heteroge-
+neous sensors. The task requires that, given a query cap-
+tured in anyscenario, a single model retrieves the same
+identity from a heterogeneous gallery that spans images
+from all availablescenarios. AS-ReID subsumes traditional
+single-scenario, cross-modal, and cross-view cases within a
+single task, thereby avoiding the closed-world assumption
+of training separate models for predefined scenario pairs
+and providing a unified, deployment-aligned training and
+evaluation paradigm.
+For problem II), we contribute a large-scale multispec-
+tral aerial-ground benchmarkWHU-MARS. WHU-MARS
+comprises 2,337 identities and 434,620 images captured by
+RGB-NIR-TIR sensors on both ground and UA V platforms,
+with tri-spectral, cross-view coverage for each identity, en-
+abling unified training and evaluation for AS-ReID. WHU-
+MARS covers day and night, multiple seasons, and diverse
+weather, yielding broad variations in illumination, view-
+point, scale, and spectral characteristics that reflect real-
+world diversity. In addition, we provide a paired-only sub-
+set with synchronized tri-spectral samples, enabling consis-
+tent evaluation of AG-, VI-, MM-, and AS-ReID settings on
+the same identities. To the best of our knowledge, WHU-
+MARS is the largest multispectral person ReID dataset to
+date and provides a solid foundation for AS-ReID.
+For problem III), we propose aUnified Alignment
+and Discrimination (UAD)framework to address two core
+challenges in AS-ReID:(a) Progressive Center Alignment
+(ProCA)consolidates view diversity into modality centers
+and aligns them toward identity centers to strengthen sce-
+nario consensus.(b) Global Prototype Discrimination (G
+PD)complements ProCA by injecting global structure, con-
+trasting samples against global prototypes to impose large
+margins in the representation space. UAD trains a single,
+scenario-invariant model without extra branches or pairwise
+objectives and achieves strong performance in AS-ReID.
+The main contributions are summarized as follows:
+•Unified ReID Task: AS-ReID.We formulate Any-
+Scenario ReID (AS-ReID), a unified task that performs
+any-to-any retrieval acrossscenarioswith a single model,
+aligned with real-world applications and subsuming con-
+ventional ReID tasks.
+•Multi-Protocol Benchmark: WHU-MARS.We intro-
+duce a multispectral aerial-ground benchmark with 2,337
+identities and RGB/NIR/TIR aerial/ground views, captur-
+ing diverse illumination, seasons, and weather conditions,
+and supporting AS-ReID and existing protocols.
+•Methodological Contribution.We propose the Uni-
+fied Alignment and Discrimination (UAD) framework,
+combining Progressive Center Alignment for scenario-
+invariant intra-identity cohesion with Global Prototype
+Discrimination for large-margin inter-identity separation.
+•Empirical Contribution.We conduct extensive ex-
+periments under AG-, VI-, MM-, and AS-ReID proto-
+cols, which highlight the challenge of WHU-MARS and
+demonstrate the effectiveness of UAD for AS-ReID.
+25462
+
+===== PAGE 3 =====
+Table 1. Comparison of person ReID datasets across scenario settings. Counts underGroundandAerialare per-modality image numbers.
+Pairedindicates the availability of frame-synchronized multimodal paired samples.Day/Nightindicate the presence of daytime/nighttime
+imagery. WHU-MARS provides tri-spectral, cross-view coverage for every identity, supporting AS-ReID and conventional ReID tasks.
+Ground AerialTask Dataset Paired Day Night #IDs #Images #RGB #NIR #TIR #RGB #NIR #TIR
+VI-ReID
+RegDB [27]! ! !412 8,240 4,120 - 4,120 - - -
+SYSU-MM01 [37]! !491 45,863 30,071 15,792 - - - -
+ThermalWorld [15]! ! !516 30,236 15,118 - 15,118 - - -
+LLCM [56]!1,064 46,767 25,626 21,141 - - - -
+AT-USTC [22]! !270 135,465 69,791 65,674 - - - -
+AG-ReID
+PRAI-1581 [53]!1,581 39,461 - - - 39,461 - -
+UA V-Human [20]!1,144 41,290 - - - 41,290 - -
+AG-ReID.V2 [28]!1,615 100,502 53,723 - - 46,779 - -
+G2A-VReID [54]!2,788 185,907 69,234 - - 116,673 - -
+LAGPeR [31]! !4,231 63,841∼44,000 - -∼21,000 - -
+VI & AG
+ReID
+MP-ReID [10]!1,930 136,156 45,270 36,300 - 26,046 - 28,543
+AG-VPReID.VIR [29]!1,104 119,958 54,546 - 6,735 54,784 - 3,893
+MM-ReIDRGBNT201 [59]! ! !201 14,361 4,787 4,787 4,787 - - -
+AS-ReID WHU-MARS-1000 ! ! ! 1,000 185,922 46,212 46,212 46,212 15,762 15,762 15,762
+and Above WHU-MARS-2337 ! ! ! 2,337 434,620 119,636 117,512 88,847 36,256 38,143 34,226
+2. Related Work
+2.1. Person Re-Identification Datasets
+Across existing ReID tasks, numerous benchmarks exist, as
+summarized in Table 1. For VI-ReID, SYSU-MM01 [37]
+and RegDB [27] support visible-infrared all-day retrieval,
+while LLCM [56] and AT-USTC [22] emphasize chal-
+lenging nighttime and long-term settings. To incorporate
+aerial viewpoints, PRAI-1581 [53] and UA V-Human [20]
+provide UA V-captured imagery, and AG-ReID.v2 [28]
+and G2A-VReID [54] extend to aerial-ground matching;
+CARGO [52] provides large-scale synthetic aerial-ground
+data. MP-ReID [10] and AG-VPReID.VIR [29] broaden
+coverage for cross-platform cross-modality evaluation, and
+RGBNT201 [59] offers tri-spectral paired samples for MM-
+ReID. A complementary line composes or extends existing
+datasets to widen scenario coverage: MMReID-Bench [17]
+aggregates multiple ReID tasks and datasets, and recent
+augmentations add sketches [2, 63] or textual descrip-
+tions [5, 13, 14] to classic ReID benchmarks. Collectively,
+these datasets provide solid task-specific foundations.
+Despite spanning diverse scenarios, most datasets fol-
+low predefined scenario pairs and are evaluated via pair-
+specific splits, which constrain unified training and any-
+to-any evaluation. Cross-source compositions introduce
+domain and protocol shifts and rarely provide consistent
+multi-scenario observations per identity. They also remain
+largely daytime-centric, undersampling nighttime condi-
+tions. These factors motivate a benchmark for real-world
+applications: consistent identity observations across modal-
+ities and viewpoints under day-night, seasonal, and weather
+variations, enabling unified any-to-any retrieval and com-
+patible with standard VI-, AG-, and MM-ReID protocols.
+2.2. Multi-Scenario ReID Methods
+Recent efforts aim to model diverse scenarios within a
+single network. Prompt-based approaches such as Uni-
+Prompt [10], Instruct-ReID [12], and VersReID [60] learn
+scenario- or task-specific prompts to guide multi-scenario
+retrieval. Unified-representation methods [16, 42, 63] en-
+code heterogeneous modalities in a shared space. Task-
+focused extensions broaden coverage: Uni-AT [22] tar-
+gets anytime retrieval with scenario-specific class tokens;
+MixER [1] and MixReID [23] extend VI-ReID to both
+cross- and intra-modality retrieval; MCL [45] explores un-
+paired USL-VI-ReID; and MDReID [7] and UCPL [62]
+support modality mismatch and cross-modality retrieval in
+MM-ReID. Together, these lines of work extend multi-
+scenario modeling via prompt conditioning, unified repre-
+sentation, and task-specific protocol extensions.
+Despite this progress, current approaches remain in-
+sufficient for AS-ReID. VI-style solutions often adopt
+multi-branch architectures or pairwise objectives, result-
+ing in complexity that grows quickly as scenarios increase.
+Prompt-based systems commonly train separate models for
+predefined scenario pairs or on heterogeneous datasets with
+disjoint identities, which limits learning identity-consistent
+features across scenarios. Unified-representation pipelines
+are optimized with RGB-anchored objectives, favoring vis-
+ible galleries rather than symmetric any-to-any matching
+across modalities and viewpoints. Protocol extensions that
+attach separate heads or scenario-specific retrieval rules fur-
+ther partition the feature space and complicate scaling to
+heterogeneous galleries. These limitations motivate a sim-
+ple but effective framework that learns a unified, scenario-
+irrelevant representation with a single model for AS-ReID.
+25463
+
+===== PAGE 4 =====
+Day/Night Weather SeasonModalityViewpoint
+Aerial
+Ground
+Figure 2. Examples from the WHU-MARS dataset. Top and bottom rows show images captured by ground and aerial platforms, respec-
+tively. Each group shows paired tri-spectral samples, illustrating variations across viewpoint, modality, day/night, weather, and season.
+3. The WHU-MARS Dataset
+3.1. Dataset Overview
+We introduce WHU-MARS, a large-scale multispectral
+aerial-ground ReID dataset designed for AS-ReID, which
+also supports standard AG-, VI-, and MM-ReID protocols.
+Data were collected on a university campus using two UA V
+platforms and five ground camera nodes. The UA V plat-
+forms carried DJI H20T cameras at altitudes between 20-
+50m, while the ground nodes employed custom tri-spectral
+cameras at about 1.5m. Both platforms synchronously
+recorded RGB, NIR, and TIR video streams. The collection
+spanned from July to the following January between 09:00
+and 21:00 local time, covering both daytime and nighttime
+and capturing diverse seasonal and weather conditions. Fig-
+ure 2 shows representative samples highlighting the diver-
+sity of WHU-MARS. WHU-MARS contains 2,337 identi-
+ties and 434,620 images across 13 sessions, totaling over
+38 hours of video. Each identity appears in all three modal-
+ities and multiple views. As summarized in Table 1, to our
+knowledge, WHU-MARS is the largest multispectral per-
+son ReID dataset to date. Data collection was authorized by
+the institutional office and conducted in publicly accessible
+areas. On-site notices were posted during capture, and all
+images underwent automatic face mosaicking and contain
+no personally identifiable metadata to protect privacy. Addi-
+tional device specifications, annotation procedures, and de-
+tailed statistics are provided in the supplementary material.
+3.2. Dataset Features
+Scale and Tri-Spectral Coverage.WHU-MARS com-
+prises 2,337 identities and 434,620 images, and every iden-
+tity is observed in RGB, NIR, and TIR across views, en-
+abling AS-ReID and supporting standard AG-, VI-, and
+MM-ReID protocols within a single benchmark.
+Day-Night Imaging.The collection spans both day-
+time and nighttime. Diurnal variations cause pronounced
+changes in illumination and background, increasing re-
+trieval difficulty and encouraging models to learn time-
+invariant identity information.
+Table 2. Statistics of the two WHU-MARS versions.
+Version Split #IDs #Images #RGB #NIR #TIR
+WHU-
+MARS-
+2337
+Train 1,000 217,504 77,253 76,975 63,276
+Gallery 1,337 217,116 78,639 78,680 59,797
+Query 1,337 15,020 5,254 5,275 4,491
+WHU-
+MARS-
+1000
+Train 500 92,313 30,771 30,771 30,771
+Gallery 500 93,609 31,203 31,203 31,203
+Query 500 6,405 2,135 2,135 2,135
+Seasonal and Weather Diversity.The dataset covers mul-
+tiple seasons and varied weather, inducing changes in ambi-
+ent temperature, backgrounds, and clothing. These factors
+affect both visible appearance and thermal emission pat-
+terns, yielding realistic intra-identity variation.
+Multimodal Heterogeneity.Multiple sensor models and
+acquisition settings were used for RGB, NIR, and TIR, in-
+ducing cross-spectral distribution shifts and broader intra-
+modality variation representative of real-world applications.
+Viewpoint and Scale Variation.Ground cameras and UA V
+platforms at different heights and oblique angles provide
+diverse viewpoints, subject scales, and image resolutions,
+mirroring the challenges of multi-platform surveillance.
+3.3. Evaluation Protocol
+In tri-spectral systems, differences in sensor resolution and
+aspect ratio, as well as occasional occlusions, mean that
+some images do not have frame-synchronized RGB-NIR-
+TIR counterparts. This characteristic reflects real-world de-
+ployments and aligns well with the AS-ReID setting. How-
+ever, tasks that require paired samples such as MM-ReID
+cannot utilize the full dataset under such constraints. More-
+over, scaling to 2,337 identities and over 400K images im-
+poses substantially higher computational cost than common
+ReID benchmarks. To address these considerations, we de-
+fine two official versions of WHU-MARS: WHU-MARS-
+2337 and WHU-MARS-1000.
+WHU-MARS-2337 retains all available images and
+identities and serves as the full benchmark for challenging
+AS-ReID evaluation and multispectral pretraining. WHU-
+MARS-1000 is a constructed subset of 1,000 identities with
+25464
+
+===== PAGE 5 =====
+Sec. 4.4 Global Prototype Discrimination
+Global
+PrototypesScenario-irrelevant
+Cohesion
+Sec. 4.3 Progressive Center Alignment
+Unified ReID Backbone
+…
+…
+…
+Shared Classifier
+Memory Pull CloseModality CentersModality Features Identity Centers Identity Prototypes Pos/Neg Contrast
++ -
+…
++
+-
+Multi-Scenario Unpaired Inputs
+Large-margin 
+Discrimination
+Update
+Figure 3. Overview of the Unified Alignment and Discrimination (UAD) framework for AS-ReID. Colors encode identities; shapes encode
+modalities. Multi-scenario unpaired inputs (RGB/NIR/TIR, aerial/ground) are processed by a single model. Progressive Center Alignment
+(ProCA) consolidates view diversity into modality centers and then pulls these centers toward an identity center, strengthening scenario-
+irrelevant intra-identity cohesion. The identity centers (stars) update a momentum prototype memory to form global prototypes. Global
+Prototype Discrimination (GPD) contrasts features against these global prototypes to enforce large inter-identity discrimination.
+61,974 frame-synchronized tri-spectral triplets. It enables
+unified benchmarking at a moderate scale, providing iden-
+tical data for AG-, VI-, MM-, and AS-ReID tasks. For
+identity alignment across scales, the train/test identities of
+WHU-MARS-1000 are subsets of the corresponding splits
+in WHU-MARS-2337. Query sets are formed by randomly
+selecting 1-3 images per identity per camera from the re-
+spective galleries. Detailed statistics are reported in Table 2.
+Aligned with established practice, we report the Cumula-
+tive Matching Characteristic (CMC) curve and mean Aver-
+age Precision (mAP). For AS-ReID, we exclude all gallery
+images from the same camera as the query, following com-
+mon VI-ReID protocols. For other tasks, we adopt their
+standard, task-specific evaluation protocols.
+4. Methodology
+We first formalize the proposed Any-Scenario ReID (AS-
+ReID) task, then present a unified single-branch baseline
+tailored to this setting, and finally introduce the Unified
+Alignment and Discrimination (UAD) framework. UAD
+targets the two challenges highlighted in AS-ReID: (i)
+scenario-irrelevant intra-identity cohesionand (ii)strong
+inter-identity discriminationunder large heterogeneous gal-
+leries. Figure 3 illustrates the overall architecture.
+4.1. Task Definition: Any-Scenario ReID
+Scenarios.LetM={RGB,NIR,TIR, . . .}be the set of
+modalities andV={ground,aerial, . . .}be the set of view-
+points. Ascenariois a modality-viewpoint combination,
+and thescenariospace is the Cartesian product
+S=M × V. (1)
+Data and single model.LetXdenote the image space and
+Ythe identity set. Each imagexwith(y, s, c)wherey∈ Y
+is the identity,s∈ Sthe scenario, andcthe camera id. AS-
+ReID uses asingle modelf θ :X →R d shared across all
+scenarios to map images into one unified space.
+Evaluation protocol.LetQbe the query set andGbe
+the gallery set spanning all scenarios. For a queryq=
+(xq, yq, sq, cq)∈ Q, the evaluation gallery is
+gq ={(x, y, s, c)∈G|c̸=c q}. (2)
+We rankg q by embedding-space distance withf θ(xq).
+The objective is to learnθsuch that items ing q with identity
+yq are ranked above those withy̸=y q. Classical subtasks
+(VI-, AG-, MM-, Tr-ReID) are recovered by restrictingS
+and filteringQandGaccordingly.
+4.2. Unified Baseline for AS-ReID
+We adopt a simple unified single-branch baseline for AS-
+ReID. Unlike MM-ReID settings that rely on synchronized
+paired tri-spectral samples, AS-ReID makes no pairing as-
+sumption. To expose the model to heterogeneous condi-
+tions within each mini-batch, we adopt aP×M×Ksam-
+pler, wherePis the number of identities,M=|M|is the
+number of modalities, andKis the number of images per
+identity per modality. This yields batches with rich cross-
+modality and cross-view variability per identity.
+All images are processed by a single backbonefθ shared
+across scenarios. Given an inputx, we obtain a featuref=
+fθ(x)and a BNNeck [25] featurez= BN(f). The BN
+layer and classifier are shared to encourage learning in a
+unified space. At inference, weℓ 2-normalizeffor retrieval.
+Following common practice, we apply the Weighted
+Regularization Triplet lossLW RT[47] toffor metric learn-
+ing and the cross-entropy lossL ce tozfor classification:
+Lbase =L ce +L W RT. (3)
+This single-branch baseline serves as a simple, scenario-
+irrelevant reference for AS-ReID.
+25465
+
+===== PAGE 6 =====
+4.3. Progressive Center Alignment
+Heterogeneous sensing in AS-ReID induces scenario-
+specific biases: features of the same identity may disperse
+across modalities and viewpoints, harming cross-scenario
+retrieval. Rather than aligning scenario pairs, which scales
+quadratically in the number of scenarios or requires image-
+level pairing, we adopt a two-levelProgressiveCenter
+Alignment (ProCA) to mitigate scenario shifts and promote
+intra-identity cohesion in the unified representation space.
+Given aP×M×Kmini-batch as described in Sec. 4.2,
+let{f y
+m,k}K
+k=1 be theℓ 2-normalized embeddings. ProCA
+first aggregates multiple views into a modality center, which
+implicitly attenuates view-specific noise and scale changes:
+˜µy,m = 1
+K
+KX
+k=1
+f y
+m,k,µ y,m = norm(˜µy,m). (4)
+ProCA then aggregates modality centers into an identity
+anchor, wherenorm(·)denotesℓ 2 normalization, and the
+identity centerµ y is treated as a stop-gradient anchor:
+˜µy = 1
+|M|
+X
+m∈M
+µy,m,µ y = norm(˜µy). (5)
+Finally, ProCA minimizes the identity-wise between-
+scenario scatter by pulling each modality center toward its
+identity anchor:
+LP roCA= 1
+P
+X
+y∈B
+1
+|M|
+X
+m∈M
+µy,m −µ y
+2
+2. (6)
+This progressive design first consolidates multi-view
+variability within each modality and then aligns modalities
+at the identity level, yielding lower identity-wise between-
+scenario scatter and providing stable anchors for GPD. The
+formulation is pairing-free, scales linearly with scenarios,
+and integrates naturally with the unified training paradigm.
+4.4. Global Prototype Discrimination
+Retrieval over a large heterogeneous gallery in AS-ReID
+produces abundant distractors (e.g., same-modality or
+same-view hard negatives), demanding strong inter-identity
+discrimination. While metric losses such as triplet en-
+large margins within a mini-batch, they shape geometry
+only locally. We therefore introduceGlobalPrototype
+Discrimination (GPD), which complements ProCA by in-
+jecting global structure at every iteration and maximizing
+dataset-level discrimination under heterogeneous negatives.
+LetP (t) ={p y ∈R d |y∈ Y train}denote an
+identity-level,ℓ 2-normalized prototype memory at iteration
+t. Within iterationt, the prototype memory is first kept fixed
+to perform global prototype contrast. Afterward, the mem-
+ory is updated using batch-wise identity centersµ y from
+Eq. (5) via exponential moving average:
+py ←norm
+ 
+αp y + (1−α)µ y
+
+, (7)
+whereα∈[0,1)is the momentum. This accumulates infor-
+mation across iterations without full-dataset recomputation.
+ProCA produces less noisy identity centersµ y for updating
+the prototype memory, while the global supervision from
+GPD encourages identity centers to be further apart in the
+embedding space to complement the aggregation of ProCA.
+For the contrast objective, each normalized featuref i
+takes its identity prototypep yi as the positive and all other
+prototypes{p y :y̸=y i}as negatives:
+L(i)
+GP D=−log exp(f ⊤
+i pyi /τ)P
+y∈Ytrain
+exp(f ⊤
+i py/τ) , (8)
+whereτis the temperature and all vectors areℓ 2-
+normalized. The loss over a mini-batchBis
+LGP D= 1
+|B|
+X
+i∈B
+L(i)
+GP D. (9)
+GPD enforces near-uniform separation from all other iden-
+tities by contrasting each sample against all identity pro-
+totypes. It complements local metric losses with dataset-
+level margins, strengthening large-margin discrimination
+over the global structure.
+4.5. Overall Objective
+Consistent with the retrieval ranking protocols, ProCA and
+GPD are applied to the pre-BN embeddingf. The final
+training objective of UAD is
+LU AD =L base +λ ProCA LP roCA+λ GPD LGP D, (10)
+whereλ ProCA andλ GPD are the weights forLP roCA,L GP D.
+5. Experiment
+5.1. Experimental Settings
+Datasets.All experiments are conducted on the WHU-
+MARS introduced in Section 3. Unless otherwise specified,
+we use the WHU-MARS-1000 as the default and addition-
+ally use the WHU-MARS-2337 to assess scalability.
+Evaluation Protocols.We report CMC (Rank-k) scores
+and mAP for all tasks. Following the standard VI-ReID
+protocol, we additionally report mean Inverse Negative Pre-
+cision (mINP) [47] for VI-ReID only.
+Implementation details.We adopt Vision Transformer [4]
+(ViT-Base) backbone pre-trained on ImageNet and train
+with Distributed Data Parallel (DDP) on four NVIDIA RTX
+3090 GPUs. Images are resized to128×256and augmented
+with padding, random resized cropping, horizontal flipping,
+and random erasing [61]. We employ aP×M×Ksampler
+withP=16identities,M=3modalities, andK=4images,
+yielding a per-GPU batch size of 192. The base learning
+rate is set to0.008per GPU, and optimization uses SGD
+for 120 epochs with a 5-epoch linear warm-up followed by
+cosine decay. For GPD, the momentumαis 0.8 and the
+temperatureτis 0.03.λ ProCA andλ GPD are set to 0.01, 1.0.
+Task-specific settings.For a fair comparison with prior
+work, inputs are resized to144×288for VI-ReID and to
+25466
+
+===== PAGE 7 =====
+Table 3. Comparison under the AS-ReID setting.WHU-MARS-1000andWHU-MARS-2337are trained and evaluated on their respective
+splits.WHU-MARS-1000-GDevaluates the WHU-MARS-1000-trained model using ground and daytime queries and galleries only.
+WHU-MARS-1000-GD WHU-MARS-1000 WHU-MARS-2337Method Venue Params mAP R-1 R-5 R-10 mAP R-1 R-5 R-10 mAP R-1 R-5 R-10
+BoT [25] CVPRW19 23.5M 10.6 24.9 37.9 45.6 5.9 18.4 32.5 40.1 4.6 14.8 26.2 32.5
+AGW [47] TPAMI21 23.5M 6.1 17.0 27.8 35.9 4.0 15.6 28.7 36.0 5.2 16.9 28.7 35.1
+MSINet [9] CVPR23 2.3M 9.7 26.9 39.5 46.3 5.6 21.1 37.5 46.0 2.6 14.8 25.4 31.6
+TransReID [11] ICCV21 99.9M 9.6 18.9 34.1 43.4 7.4 17.1 30.3 38.2 5.5 13.1 23.4 29.1
+TransReID-SSL [26] arXiv21 88.4M 14.0 30.1 44.1 51.7 10.1 26.7 43.8 51.7 9.2 24.4 39.1 46.2
+DC-Former [21] AAAI23 85.8M 9.9 20.1 34.9 42.0 6.5 16.3 29.9 36.7 4.3 10.9 19.8 25.5
+CLIP-ReID [18] AAAI23 125.3M 13.8 28.9 42.7 49.6 10.6 26.6 42.6 50.4 9.3 24.1 37.5 44.0
+PHA [50] CVPR23 107.0M 9.6 22.0 33.9 42.3 7.5 15.9 28.2 35.3 5.5 12.0 21.1 26.3
+VDT [52] CVPR24 85.8M 13.1 31.0 44.1 51.1 7.8 25.2 41.9 50.4 6.3 20.0 33.5 40.4
+DTST [32] arXiv24 86.9M 11.6 29.8 42.5 47.9 6.8 23.4 39.8 47.9 7.5 23.5 37.9 45.3
+SeCap [31] CVPR25 130.9M 13.4 28.1 41.2 47.8 10.4 26.4 42.4 50.4 8.0 21.4 34.1 41.0
+UAD (Ours) CVPR26 85.7M 14.5 31.9 45.0 52.5 11.0 29.5 46.3 54.8 9.6 25.7 40.9 48.2
+128×256for other tasks, and patch strides are set to16×16
+for transformer-based methods. All remaining settings fol-
+low the corresponding open-source implementations.
+5.2. Experimental Analysis
+In this section, we present a comprehensive evaluation
+on WHU-MARS across four settings, including AS-ReID,
+AG-ReID, VI-ReID, and MM-ReID, and analyze the impact
+of our key design choices on performance.
+Any-Scenario ReID.We evaluate a range of recent gen-
+eral ReID methods under the AS-ReID protocol on WHU-
+MARS. Heterogeneous galleries that mix modalities and
+viewpoints make AS-ReID substantially more challenging
+than conventional settings. As detailed in Table 3, standard
+CNN and Transformer based methods such as BoT [25]
+and TransReID [11] achieve Rank-1 below 20% on WHU-
+MARS-1000. Human-centric pre-training and stronger
+backbones improve robustness: TransReID-SSL [26] and
+CLIP-ReID [18] consistently outperform other generic
+methods. AG-ReID methods that explicitly learn view-
+point invariance can partially transfer their benefits to AS-
+ReID and bring further gains, although cross-modality dis-
+crepancies still cap performance. Restricting evaluation
+to the ground-daytime subset WHU-MARS-1000-GD im-
+proves all methods, indicating that excluding nighttime
+and aerial viewpoints eases retrieval. However, the task
+remains nontrivial because modality gaps remain signifi-
+cant. Scaling from WHU-MARS-1000 to the larger and
+more diverse WHU-MARS-2337 leads to a consistent drop
+across methods, reflecting the increased number of hard
+negatives and broader domain shifts with more identities
+and scenarios. Across these settings, our UAD achieves
+the best overall performance and uses the fewest params
+among Transformer-based methods, indicating that learn-
+ing a unified representation in a single model is feasible and
+competitive for AS-ReID while remaining practical for de-
+ployment. We attribute the gains primarily to ProCA and
+GPD, which jointly enforce scenario-invariant cohesion and
+global discrimination under heterogeneous galleries.
+Table 4. Comparison under the AG-ReID setting.
+A→G G→ASetting mAP R-1 R-10 mAP R-1 R-10
+VDT [52] 8.9 30.4 56.7 10.7 30.2 56.4
+DTST [32] 7.9 30.5 56.2 9.8 28.557.3
+SeCap [31] 10.1 26.4 50.4 12.0 25.3 50.7
+UAD (Ours) 11.5 31.9 58.3 13.3 30.5 54.7
+Table 5. Comparison under the VI-ReID setting.
+NIR→RGB TIR→RGBMethod R-1 mAP mINP R-1 mAP mINP
+AGW [47] 17.42 10.87 1.49 5.67 3.50 0.60
+CAJ [46] 25.90 16.11 2.04 7.92 4.79 0.75
+CAJ+ [48] 25.57 14.62 1.68 7.78 4.37 0.66
+SAAI [6] 23.47 13.92 1.58 5.81 3.57 0.65
+CSDN [49] 25.11 14.61 2.07 6.89 3.84 0.73
+DEEN [56] 27.6317.05 3.00 8.01 5.69 1.31
+PMT [24] 27.12 18.16 3.18 8.29 5.85 1.21
+UAD (Ours) 25.53 16.58 3.10 9.04 6.32 1.36
+Aerial-Ground ReID.We compare AG-ReID specific
+methods and also report the cross-view performance of
+UAD. All methods are trained on WHU-MARS-1000 and
+evaluated with queries and galleries restricted to the cor-
+responding viewpoints. As shown in Table 4, SeCap [31]
+attains the best mAP among AG-specific approaches, while
+VDT [52] and DTST [32] achieve comparable Rank-1 accu-
+racy. Despite not being tailored to AG-ReID, UAD achieves
+the strongest cross-view results, suggesting that a unified
+representation generalizes well across viewpoints and miti-
+gates severe scale and perspective changes.
+Visible-Infrared ReID.We evaluate WHU-MARS-1000
+under VI-ReID protocols. As summarized in Table 5,
+all specialized VI-ReID methods are trained separately
+with two independent models, whereas UAD is trained
+once on all three modalities without any modality-specific
+branches, pairwise alignment losses, or VI-specific aug-
+mentation (CA [46] or RLE [30]). All images are re-
+sized to144×288. Compared with previous VI-ReID
+benchmarks, all methods obtain much lower performance
+25467
+
+===== PAGE 8 =====
+Table 6. Modality-pair evaluation of the single UAD model.
+Columns and rows indicate the query and gallery modality.
+G RGB NIR TIR
+Q R-1 mAP mINP R-1 mAP mINP R-1 mAP mINP
+RGB 40.47 26.83 5.36 26.56 16.52 2.43 8.10 6.00 1.11
+NIR 25.53 16.58 3.10 29.79 17.93 2.64 7.78 5.87 1.11
+TIR 9.04 6.32 1.36 8.57 5.69 1.02 20.98 14.00 2.35
+Table 7. Comparison under the MM-ReID setting.
+Method mAP R-1 R-5 R-10
+ICPL-ReID [19] 35.0 43.5 59.2 67.5
+TOP-ReID [33] 36.2 44.0 61.5 69.5
+EDITOR [51] 37.8 44.9 63.0 72.0
+HTT [36] 39.1 48.0 64.1 72.6
+MDReID [7] 41.4 52.1 67.7 74.8
+MambaPro [34] 42.1 53.7 69.7 77.0
+MFRNet [8] 43.8 54.3 70.0 77.1
+PromptMA [55] 44.2 53.7 68.4 75.1
+DeMo [35] 44.8 56.2 72.6 78.7
+Table 8. Ablation study of the UAD framework.
+Lbase ProCA GPD mAP R-1 R-5 R-10
+✓ 8.9 23.9 41.4 50.5
+✓ ✓ 9.3 24.5 42.0 50.7
+✓ ✓ 10.9 28.7 45.9 54.2
+✓ ✓ ✓ 11.0 29.5 46.3 54.8
+on WHU-MARS-1000, indicating that the multi-view, het-
+erogeneous camera setting is considerably more challeng-
+ing. On NIR-RGB, PMT [24] achieves the best overall per-
+formance, while our unified UAD model remains competi-
+tive among recent methods despite not being tailored to VI-
+ReID. In contrast, on the more difficult TIR-RGB protocol,
+UAD attains the best results among all competitors. This
+suggests that any-scenario training with ProCA and GPD
+enforcing shared identity prototypes helps the scarce, noisy
+TIR modality benefit from RGB/NIR supervision. Table 6
+further evaluates the same UAD model on all3×3query-
+gallery modality pairs: intra-modality retrieval is easiest
+and TIR to others are hardest, yet the unified model still
+yields reasonable performance, demonstrating that a single
+unified model without modality-specific design can handle
+multiple VI-ReID tasks competitively.
+Multi-modality ReID.We conduct a comprehensive
+benchmark on WHU-MARS-1000 for publicly available
+MM-ReID methods in Table 7. In this setting, all meth-
+ods are trained and evaluated with synchronized tri-spectral
+triplets, allowing them to exploit complementary cues
+across modalities, which is strictly easier than the AS-
+ReID setting. Nevertheless, ViT-based methods achieve
+less than 50% Rank-1, and the best method DeMo [35]
+reaches only 44.8% mAP and 56.2% Rank-1, indicating
+that WHU-MARS remains a substantially more challeng-
+ing multi-modality ReID benchmark than existing datasets.
+(b) UAD(a) Baseline
+0.2 0.35 0.5 0.65 0.8
+Δ = 0.1617430.0 0.591
+-0.25 0 0.25 0.5 0.75
+Δ = 0.2654020.0 0.286
+Figure 4. Visualization of cosine similarity distributions for intra-
+and inter-identity pairs. Green and blue denote intra- and inter-
+identity pairs, and dashed lines indicate the mean cosine similarity.
+5.3. Ablation Study
+We conduct ablations under the AS-ReID protocol to as-
+sess the contribution of each component in UAD. As shown
+in Table 8, introducing ProCA leads to consistent improve-
+ments, indicating that progressive alignment strengthens
+scenario-irrelevant learning. Enabling GPD produces larger
+gains by injecting the global prototype structure. Combin-
+ing ProCA and GPD achieves the best overall performance,
+confirming the intended synergy: ProCA progressively reg-
+ularizes the batch identity centers and stabilizes the proto-
+type memory, while GPD leverages them to sharpen global
+discrimination under heterogeneous galleries.
+5.4. Visualization
+To further examine how UAD shapes the representation
+space, we visualize the cosine similarity distributions of
+intra-identity and inter-identity pairs in Figure 4. Compared
+with the baseline, which exhibits substantially concentrated
+and overlapped distributions under scenario heterogeneity,
+UAD widens the mean similarity margin between the two
+distributions, indicating a more separable and discrimina-
+tive representation space for robust retrieval.
+6. Conclusion
+We introduce Any-Scenario ReID (AS-ReID), a unified and
+deployment-aligned paradigm in which a single model re-
+trieves identities from a heterogeneous gallery across di-
+verse scenarios. To support this task, we contribute WHU-
+MARS, a multispectral aerial-ground dataset with tri-
+spectral, cross-view coverage for each identity, supporting
+AS-ReID as well as conventional AG-, VI-, and MM-ReID
+protocols. Methodologically, our Unified Alignment and
+Discrimination (UAD) framework strengthens scenario-
+invariant intra-identity cohesion through Progressive Cen-
+ter Alignment (ProCA) and enforces large inter-identity
+margins via Global Prototype Discrimination (GPD). Ex-
+tensive experiments under multiple protocols highlight the
+challenge of WHU-MARS and validate the effectiveness
+of UAD. We believe WHU-MARS provides a solid data
+foundation for the ReID community, and that AS-ReID
+and UAD represent concrete steps toward more general and
+deployment-friendly person ReID systems.
+25468
+
+===== PAGE 9 =====
+Acknowledgements.This work is partially supported
+by National Natural Science Foundation of China un-
+der Grants (62501428, 62225113, T2541022), Postdoc-
+toral Fellowship Program of CPSF under Grant Number
+(GZC20241268, 2024M762479), Hubei Provincial Natural
+Science Foundation of China (2025AFB219). The super-
+computing system at the Supercomputing Center of Wuhan
+University supported the calculations in this paper.
+References
+[1] Mahdi Alehdaghi, Rajarshi Bhattacharya, Dai Yannick,
+Pourya Shamsolmoali, Rafael MO Cruz, and Eric Granger.
+Mixer: From cross-modal to mixed-modal visible-infrared
+re-identification. InWACV, pages 3431–3440, 2026. 3
+[2] Cuiqun Chen, Mang Ye, and Ding Jiang. Towards modality-
+agnostic person re-identification with descriptive query. In
+CVPR, pages 15128–15137, 2023. 3
+[3] Zhenyu Cui, Jiahuan Zhou, and Yuxin Peng. Dma: Dual
+modality-aware alignment for visible-infrared person re-
+identification.IEEE TIFS, 19:2696–2708, 2024. 2
+[4] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Syl-
+vain Gelly, et al. An image is worth 16x16 words: Trans-
+formers for image recognition at scale.arXiv preprint
+arXiv:2010.11929, 2020. 6
+[5] Yunhao Du, Zhicheng Zhao, and Fei Su. Yyds: Visible-
+infrared person re-identification with coarse descriptions.
+arXiv preprint arXiv:2403.04183, 2024. 3
+[6] Xingye Fang, Yang Yang, and Ying Fu. Visible-infrared per-
+son re-identification via semantic alignment and affinity in-
+ference. InICCV, pages 11270–11279, 2023. 7
+[7] Yingying Feng, Jie Li, Jie Hu, Yukang Zhang, Lei Tan, and
+Jiayi Ji. Mdreid: Modality-decoupled learning for any-to-
+any multi-modal object re-identification. InNeurIPS, 2025.
+3, 8
+[8] Yingying Feng, Jie Li, Chi Xie, Lei Tan, and Jiayi Ji. Multi-
+modal object re-identification via sparse mixture-of-experts.
+InICML, pages 16796–16807. PMLR, 2025. 8
+[9] Jianyang Gu, Kai Wang, Hao Luo, Chen Chen, Wei Jiang,
+Yuqiang Fang, Shanghang Zhang, Yang You, and Jian Zhao.
+Msinet: Twins contrastive search of multi-scale interaction
+for object reid. InCVPR, pages 19243–19253, 2023. 7
+[10] Ruiyang Ha, Songyi Jiang, Bin Li, Bikang Pan, Yihang
+Zhu, Junjie Zhang, Xiatian Zhu, Shaogang Gong, and Jingya
+Wang. Multi-modal multi-platform person re-identification:
+Benchmark and method. InICCV, pages 10251–10261,
+2025. 2, 3
+[11] Shuting He, Hao Luo, Pichao Wang, Fan Wang, Hao Li,
+and Wei Jiang. Transreid: Transformer-based object re-
+identification. InICCV, pages 15013–15022, 2021. 7
+[12] Weizhen He, Yiheng Deng, Shixiang Tang, Qihao Chen,
+Qingsong Xie, Yizhou Wang, Lei Bai, Feng Zhu, Rui Zhao,
+Wanli Ouyang, et al. Instruct-reid: A multi-purpose per-
+son re-identification task with instructions. InCVPR, pages
+17521–17531, 2024. 3
+[13] Zhangyi Hu, Bin Yang, and Mang Ye. Empowering visible-
+infrared person re-identification with large foundation mod-
+els. InNeurIPS, pages 117363–117387, 2024. 3
+[14] Jiayu Jiang, Changxing Ding, Wentao Tan, Junhong Wang,
+Jin Tao, and Xiangmin Xu. Modeling thousands of hu-
+man annotators for generalizable text-to-image person re-
+identification. InCVPR, pages 9220–9230, 2025. 3
+[15] Vladimir V Kniaz, Vladimir A Knyaz, Jiri Hladuvka, Wal-
+ter G Kropatsch, and Vladimir Mizginov. Thermalgan: Mul-
+timodal color-to-thermal image translation for person re-
+identification in multispectral dataset. InECCV workshops,
+2018. 3
+[16] He Li, Mang Ye, Ming Zhang, and Bo Du. All in one frame-
+work for multimodal re-identification in the wild. InCVPR,
+pages 17459–17469, 2024. 3
+[17] Jinhao Li, Zijian Chen, Lirong Deng, Changbo Wang, and
+Guangtao Zhai. Mmreid-bench: Unleashing the power of
+mllms for effective and versatile person re-identification.
+arXiv preprint arXiv:2508.06908, 2025. 3
+[18] Siyuan Li, Li Sun, and Qingli Li. Clip-reid: exploiting
+vision-language model for image re-identification without
+concrete text labels. InAAAI, pages 1405–1413, 2023. 7
+[19] Shihao Li, Chenglong Li, Aihua Zheng, Jin Tang, and Bin
+Luo. Icpl-reid: Identity-conditional prompt learning for
+multi-spectral object re-identification.IEEE TMM, 2025. 8
+[20] Tianjiao Li, Jun Liu, Wei Zhang, Yun Ni, Wenqian Wang,
+and Zhiheng Li. Uav-human: A large benchmark for human
+behavior understanding with unmanned aerial vehicles. In
+CVPR, pages 16266–16275, 2021. 3
+[21] Wen Li, Cheng Zou, Meng Wang, Furong Xu, Jianan Zhao,
+Ruobing Zheng, Yuan Cheng, and Wei Chu. Dc-former: Di-
+verse and compact transformer for person re-identification.
+InAAAI, pages 1415–1423, 2023. 7
+[22] Xulin Li, Yan Lu, Bin Liu, Jiaze Li, Qinhong Yang, Tao
+Gong, Qi Chu, Mang Ye, and Nenghai Yu. Towards anytime
+retrieval: a benchmark for anytime person re-identification.
+InIJCAI, pages 1467–1475, 2025. 3
+[23] Wei Liu, Xin Xu, Hua Chang, Xin Yuan, and Zheng Wang.
+Mix-modality person re-identification: A new and practical
+paradigm.ACM TOMM, 21(4):1–21, 2025. 3
+[24] Hu Lu, Xuezhang Zou, and Pingping Zhang. Learning pro-
+gressive modality-shared transformers for effective visible-
+infrared person re-identification. InAAAI, pages 1835–1843,
+2023. 7, 8
+[25] Hao Luo, Youzhi Gu, Xingyu Liao, Shenqi Lai, and Wei
+Jiang. Bag of tricks and a strong baseline for deep person
+re-identification. InCVPR workshops, 2019. 5, 7
+[26] Hao Luo, Pichao Wang, Yi Xu, Feng Ding, Yanxin Zhou, Fan
+Wang, Hao Li, and Rong Jin. Self-supervised pre-training for
+transformer-based person re-identification.arXiv preprint
+arXiv:2111.12084, 2021. 7
+[27] Dat Tien Nguyen, Hyung Gil Hong, Ki Wan Kim, and
+Kang Ryoung Park. Person recognition system based on a
+combination of body images from visible light and thermal
+cameras.Sensors, 17(3):605, 2017. 3
+[28] Huy Nguyen, Kien Nguyen, Sridha Sridharan, and Clinton
+Fookes. Ag-reid. v2: Bridging aerial and ground views for
+25469
+
+===== PAGE 10 =====
+person re-identification.IEEE TIFS, 19:2896–2908, 2024.
+2, 3
+[29] Huy Nguyen, Kien Nguyen, Akila Pemasiri, Akmal
+Jahan, Clinton Fookes, and Sridha Sridharan. Ag-
+vpreid. vir: Bridging aerial and ground platforms for
+video-based visible-infrared person re-id.arXiv preprint
+arXiv:2507.17995, 2025. 2, 3
+[30] Lei Tan, Yukang Zhang, Keke Han, Pingyang Dai, Yan
+Zhang, Yongjian Wu, and Rongrong Ji. Rle: A uni-
+fied perspective of data augmentation for cross-spectral re-
+identification. InNeurIPS, pages 126977–126996, 2024. 7
+[31] Shining Wang, Yunlong Wang, Ruiqi Wu, Bingliang Jiao,
+Wenxuan Wang, and Peng Wang. Secap: Self-calibrating
+and adaptive prompts for cross-view person re-identification
+in aerial-ground networks. InCVPR, pages 22119–22128,
+2025. 3, 7
+[32] Yuhai Wang and Maryam Pishgar. Dynamic token selec-
+tion for aerial-ground person re-identification.arXiv preprint
+arXiv:2412.00433, 2024. 7
+[33] Yuhao Wang, Xuehu Liu, Pingping Zhang, Hu Lu,
+Zhengzheng Tu, and Huchuan Lu. Top-reid: Multi-spectral
+object re-identification with token permutation. InAAAI,
+pages 5758–5766, 2024. 8
+[34] Yuhao Wang, Xuehu Liu, Tianyu Yan, Yang Liu, Aihua
+Zheng, Pingping Zhang, and Huchuan Lu. Mambapro:
+Multi-modal object re-identification with mamba aggrega-
+tion and synergistic prompt. InAAAI, pages 8150–8158,
+2025. 8
+[35] Yuhao Wang, Yang Liu, Aihua Zheng, and Pingping Zhang.
+Decoupled feature-based mixture of experts for multi-modal
+object re-identification. InAAAI, pages 8141–8149, 2025. 8
+[36] Zi Wang, Huaibo Huang, Aihua Zheng, and Ran He. Het-
+erogeneous test-time training for multi-modal person re-
+identification. InAAAI, pages 5850–5858, 2024. 8
+[37] Ancong Wu, Wei-Shi Zheng, Hong-Xing Yu, Shaogang
+Gong, and Jianhuang Lai. Rgb-infrared cross-modality per-
+son re-identification. InICCV, pages 5380–5389, 2017. 3
+[38] Kunlun Xu, Zichen Liu, Xu Zou, Yuxin Peng, and Jiahuan
+Zhou. Long short-term knowledge decomposition and con-
+solidation for lifelong person re-identification.IEEE TPAMI,
+2025. 1
+[39] Bin Yang, Mang Ye, Jun Chen, and Zesen Wu. Aug-
+mented dual-contrastive aggregation learning for unsuper-
+vised visible-infrared person re-identification. InACM MM,
+pages 2843–2851, 2022. 2
+[40] Bin Yang, Jun Chen, Cuiqun Chen, and Mang Ye. Dual
+consistency-constrained learning for unsupervised visible-
+infrared person re-identification.IEEE TIFS, 19:1767–1779,
+2023. 1
+[41] Bin Yang, Jun Chen, Xianzheng Ma, and Mang Ye. Transla-
+tion, association and augmentation: Learning cross-modality
+re-identification from single-modality annotation.IEEE TIP,
+32:5099–5113, 2023. 2
+[42] Bin Yang, Jun Chen, and Mang Ye. Towards grand unified
+representation learning for unsupervised visible-infrared per-
+son re-identification. InICCV, pages 11069–11079, 2023. 3
+[43] Bin Yang, Jun Chen, and Mang Ye. Shallow-deep collab-
+orative learning for unsupervised visible-infrared person re-
+identification. InCVPR, pages 16870–16879, 2024. 1
+[44] Bin Yang, Lekai Liu, Wenke Huang, Xiao Wang, Bo Du,
+and Mang Ye. Mining cross-modality implicit seman-
+tic association for unsupervised visible-infrared person re-
+identification.IEEE TIFS, 21:697–709, 2025. 2
+[45] Haoyu Yao, Bin Yang, Wenke Huang, Bo Du, and Mang Ye.
+Unsupervised visible-infrared person re-identification under
+unpaired settings. InICCV, pages 11916–11926, 2025. 3
+[46] Mang Ye, Weijian Ruan, Bo Du, and Mike Zheng Shou.
+Channel augmented joint learning for visible-infrared recog-
+nition. InICCV, pages 13567–13576, 2021. 7
+[47] Mang Ye, Jianbing Shen, Gaojie Lin, Tao Xiang, Ling
+Shao, and Steven CH Hoi. Deep learning for person re-
+identification: A survey and outlook.IEEE TPAMI, 44(6):
+2872–2893, 2021. 5, 6, 7
+[48] Mang Ye, Zesen Wu, Cuiqun Chen, and Bo Du. Chan-
+nel augmentation for visible-infrared re-identification.IEEE
+TPAMI, 46(4):2299–2315, 2023. 7
+[49] Xiaoyan Yu, Neng Dong, Liehuang Zhu, Hao Peng, and
+Dapeng Tao. Clip-driven semantic discovery network for
+visible-infrared person re-identification.IEEE TMM, 2025.
+7
+[50] Guiwei Zhang, Yongfei Zhang, Tianyu Zhang, Bo Li, and
+Shiliang Pu. Pha: Patch-wise high-frequency augmenta-
+tion for transformer-based person re-identification. InCVPR,
+pages 14133–14142, 2023. 7
+[51] Pingping Zhang, Yuhao Wang, Yang Liu, Zhengzheng Tu,
+and Huchuan Lu. Magic tokens: Select diverse tokens for
+multi-modal object re-identification. InCVPR, pages 17117–
+17126, 2024. 8
+[52] Quan Zhang, Lei Wang, Vishal M. Patel, Xiaohua Xie, and
+Jianhuang Lai. View-decoupled transformer for person re-
+identification under aerial-ground camera network. InCVPR,
+pages 22000–22009, 2024. 3, 7
+[53] Shizhou Zhang, Qi Zhang, Yifei Yang, Xing Wei, Peng
+Wang, Bingliang Jiao, and Yanning Zhang. Person re-
+identification in aerial imagery.IEEE TMM, 23:281–291,
+2020. 1, 3
+[54] Shizhou Zhang, Wenlong Luo, De Cheng, Qingchun Yang,
+Lingyan Ran, Yinghui Xing, and Yanning Zhang. Cross-
+platform video person reid: A new benchmark dataset and
+adaptation approach. InECCV, pages 270–287. Springer,
+2024. 3
+[55] Shizhou Zhang, Wenlong Luo, De Cheng, Yinghui Xing,
+Guoqiang Liang, Peng Wang, and Yanning Zhang. Prompt-
+based modality alignment for effective multi-modal object
+re-identification.IEEE TIP, 2025. 8
+[56] Yukang Zhang and Hanzi Wang. Diverse embedding ex-
+pansion network and low-light cross-modality benchmark
+for visible-infrared person re-identification. InCVPR, pages
+2153–2162, 2023. 3, 7
+[57] Yukang Zhang, Hanzi Wang, Yang Lu, Yan Yan, and Xue-
+long Li. Frequency domain nuances mining for visible-
+infrared person re-identification.IEEE TIFS, 2025. 2
+25470
+
+===== PAGE 11 =====
+[58] Yuxuan Zhao, Weijian Ruan, He Li, and Mang Ye. Nightreid:
+a large-scale nighttime person re-identification benchmark.
+InAAAI, pages 10519–10527, 2025. 1
+[59] Aihua Zheng, Zi Wang, Zihan Chen, Chenglong Li, and Jin
+Tang. Robust multi-modality person re-identification. In
+AAAI, pages 3529–3537, 2021. 1, 2, 3
+[60] Wei-Shi Zheng, Junkai Yan, and Yi-Xing Peng. A versa-
+tile framework for multi-scene person re-identification.IEEE
+TPAMI, 47(3):1362–1380, 2024. 3
+[61] Zhun Zhong, Liang Zheng, Guoliang Kang, Shaozi Li, and
+Yi Yang. Random erasing data augmentation. InAAAI, pages
+13001–13008, 2020. 6
+[62] Zhongao Zhou, Bin Yang, Wenke Huang, Jun Chen, and
+Mang Ye. Unbiased prototype consistency learning for
+multi-modal and multi-task object re-identification. In
+NeurIPS, 2025. 3
+[63] Jialong Zuo, Yongtai Deng, Mengdan Tan, Rui Jin, Dongyue
+Wu, Nong Sang, Liang Pan, and Changxin Gao. Reid5o:
+Achieving omni multi-modal person re-identification in a
+single model. InNeurIPS, 2025. 3
+25471

@@ -1,0 +1,77 @@
+MODEL:
+  PRETRAIN_CHOICE: 'imagenet'
+  PRETRAIN_PATH: 'jx_vit_base_p16_224-80ecf9dd.pth'
+  METRIC_LOSS_TYPE: 'wrt'
+  IF_LABELSMOOTH: 'off'
+  IF_WITH_CENTER: 'no'
+  NAME: 'transformer'
+  NO_MARGIN: True
+  TRANSFORMER_TYPE: 'vit_base_in'
+  STRIDE_SIZE: [16, 16]
+  PCA_LOSS_WEIGHT: 0.01
+  # Weight of new center, equivalent to 0.8 on the old prototype.
+  GPD_MOMENTUM: 0.2
+
+INPUT:
+  SIZE_TRAIN: [256, 128]
+  SIZE_TEST: [256, 128]
+  PROB: 0.5
+  RE_PROB: 0.5
+  PADDING: 10
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+
+DATASETS:
+  NAMES: ('WHU-MARS')
+  ROOT_DIR: ('/project/code/data')
+  DATASET_DIR: 'WHU-MARS'
+  FILTER_GD: False
+  MODALITIES: ['RGB', 'IR', 'Thermal']
+
+DATALOADER:
+  SAMPLER: 'PKM'
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 8
+
+SOLVER:
+  OPTIMIZER_NAME: 'SGD'
+  MAX_EPOCHS: 120
+  BASE_LR: 0.032
+  # 256 global sampling positions: 64 positions / 192 actual images per rank.
+  IMS_PER_BATCH: 256
+  SEED: 1234
+  WARMUP_METHOD: 'linear'
+  WARMUP_EPOCHS: 5
+  CHECKPOINT_PERIOD: 120
+  LOG_PERIOD: 50
+  EVAL_PERIOD: 10
+  WEIGHT_DECAY: 1e-4
+  WEIGHT_DECAY_BIAS: 1e-4
+  BIAS_LR_FACTOR: 2
+  LOSS_TYPE: 'base+pca+gpd'
+
+TEST:
+  IMS_PER_BATCH: 512
+  RE_RANKING: False
+  NECK_FEAT: 'before'
+  FEAT_NORM: 'yes'
+  TOP_K_EVAL: 0
+
+OUTPUT_DIR: './logs/UAD_SAM_B_1000_DDP'
+
+WCV1:
+  ENABLED: False
+
+SAM:
+  ENABLED: True
+  # Also use the state-safe single-pass path when SAM is disabled for control.
+  SAFE_BASELINE: True
+  SCOPE: 'backbone'
+  RHO_MAX: 0.02
+  START_EPOCH: 5
+  RAMP_EPOCHS: 5
+  ADAPTIVE: False
+  STABLE: False
+  EPS: 1e-12
+  FIX_STEP_TARGETS: True
+  REPLAY_RNG: True
